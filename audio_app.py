@@ -179,6 +179,11 @@ class AudioDSPApp:
         self.specs["reconstructed"] = self.get_spec_data(self.reconstructed)
         
         self.root.after(0, lambda: self.draw_dynamic_flow(5))
+
+        self.root.after(0, lambda: self.draw_dynamic_flow(6))
+
+
+        
         self.calculate_metrics()
         self.root.after(0, lambda: self.status_var.set("Pipeline Complete."))
 
@@ -188,7 +193,7 @@ class AudioDSPApp:
 
     def draw_dynamic_flow(self, step=0):
         self.flow_canvas.delete("all")
-        stages = ["Input", "Spectral Denoise", "Median Filter", "Musical Suppress", "Quantize & Rec"]
+        stages = ["WAV Input", "Denoising", "FFT", "Encoding", "ISFT", "Compression"]
         x_start, y_center, box_w, box_h = 30, 50, 140, 40
         for i, name in enumerate(stages):
             color = "#00c878" if i < step else "#444"
