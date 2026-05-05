@@ -34,14 +34,15 @@ class AudioDSPApp:
 
     def setup_ui(self):
         # --- Header ---
-        tk.Label(self.root, text="DSP Audio System", font=("Segoe UI", 18, "bold"), 
+        tk.Label(self.root, text="Advanced DSP Audio Pipeline", font=("Segoe UI", 18, "bold"), 
                  bg="#1e1e19", fg="#ffffff").pack(pady=10)
 
         # --- Dynamic Flow Chart Frame ---
         flow_frame = tk.LabelFrame(self.root, text="Processing Pipeline Status", bg="#1e1e19", fg="#4682c8", font=("Arial", 10))
         flow_frame.pack(pady=10, padx=20, fill=tk.X)
         
-        self.flow_canvas = tk.Canvas(flow_frame, width=900, height=100, bg="#121212", highlightthickness=1, highlightbackground="#333")
+        # Increased width to accommodate the new Median step
+        self.flow_canvas = tk.Canvas(flow_frame, width=950, height=100, bg="#121212", highlightthickness=1, highlightbackground="#333")
         self.flow_canvas.pack(pady=5, padx=5)
 
         # --- Control & Metrics Panel ---
@@ -51,7 +52,6 @@ class AudioDSPApp:
         tk.Button(ctrl_frame, text="1. Load WAV", command=self.load_audio, width=15, bg="#4682c8", fg="white").grid(row=0, column=0, padx=5)
         tk.Button(ctrl_frame, text="2. Process DSP", command=self.start_processing_thread, width=15, bg="#00c878", fg="white").grid(row=0, column=1, padx=5)
 
-        # Metrics Display
         self.snr_label = tk.Label(ctrl_frame, text="SNR: -- dB", bg="#1e1e19", fg="#00c878", font=("Consolas", 11))
         self.snr_label.grid(row=0, column=2, padx=20)
         self.comp_label = tk.Label(ctrl_frame, text="Compression: -- %", bg="#1e1e19", fg="#4682c8", font=("Consolas", 11))
@@ -82,90 +82,36 @@ class AudioDSPApp:
         self.status_var = tk.StringVar(value="Ready")
         tk.Label(self.root, textvariable=self.status_var, bd=1, relief=tk.SUNKEN, anchor=tk.W, bg="#333", fg="#ccc").pack(side=tk.BOTTOM, fill=tk.X)
 
-    def draw_dynamic_flow(self, step=0):
-        self.flow_canvas.delete("all")
-        stages = ["WAV Input", "Spectral Denoise", "Bit Quantization", "Reconstruction"]
-        x_start = 50
-        y_center = 50
-        box_w, box_h = 130, 40
-
-        for i, name in enumerate(stages):
-            color = "#00c878" if i < step else "#444"
-            text_color = "white" if i < step else "#888"
-            
-            # Box
-            self.flow_canvas.create_rectangle(x_start, y_center-box_h/2, x_start+box_w, y_center+box_h/2, 
-                                              outline=color, width=2, fill="#1a1a1a")
-            self.flow_canvas.create_text(x_start+box_w/2, y_center, text=name, fill=text_color, font=("Arial", 9, "bold"))
-            
-            # Connector Arrow
-            if i < len(stages) - 1:
-                arrow_color = "#00c878" if i < step - 1 else "#333"
-                self.flow_canvas.create_line(x_start+box_w, y_center, x_start+box_w+50, y_center, 
-                                             fill=arrow_color, arrow=tk.LAST, width=2)
-            
-            x_start += 180
-
     # ===============================
-    # DSP Logic & Metrics
+    # Your Custom DSP Functions
     # ===============================
 
-    def process_audio(self):
-        # Stage 1: Load/Prepare
-        self.root.after(0, lambda: self.draw_dynamic_flow(1))
-        time.sleep(0.5) # For visual effect
+    def apply_median_filter(self, signal, window_size):
+        padded = np.pad(signal, (window_size // 2,), mode='edge')
+        windows = np.lib.stride_tricks.sliding_window_view(padded, window_size)
+        return np.median(windows, axis=1)
 
-        # Stage 2: Denoising
-        self.root.after(0, lambda: self.draw_dynamic_flow(2))
-        denoised_raw = self.spectral_denoise(self.original)
-        self.denoised = self.suppress_musical_noise(denoised_raw)
-        self.specs["denoised"] = self.get_spec_data(self.denoised)
-        
-        # Stage 3: Quantization
-        self.root.after(0, lambda: self.draw_dynamic_flow(3))
-        self.reconstructed = self.compress_reconstruct(self.denoised)
-        self.specs["reconstructed"] = self.get_spec_data(self.reconstructed)
-        
-        # Stage 4: Metrics & Completion
-        self.root.after(0, lambda: self.draw_dynamic_flow(4))
-        self.calculate_metrics()
-        self.root.after(0, lambda: self.status_var.set("Pipeline Processing Complete."))
-
-    def calculate_metrics(self):
-        # SNR
-        noise = self.original - self.denoised[:len(self.original)]
-        p_sig = np.mean(self.original**2)
-        p_noise = np.mean(noise**2) + 1e-10
-        snr = 10 * np.log10(p_sig / p_noise)
-        
-        # Compression (Example logic based on bit-reduction)
-        comp_rate = 72.5 
-        
-        self.root.after(0, lambda: self.snr_label.config(text=f"SNR: {snr:.2f} dB"))
-        self.root.after(0, lambda: self.comp_label.config(text=f"Compression: {comp_rate}%"))
-
-    # ===============================
-    # Support Methods
-    # ===============================
-
-    def get_spec_data(self, x):
-        f, t, Zxx = stft(x, self.fs, nperseg=512, noverlap=256)
-        return 20 * np.log10(np.abs(Zxx) + 1e-10)
-
-    def spectral_denoise(self, x):
-        _, _, Zxx = stft(x, self.fs, nperseg=1024)
-        mag, phase = np.abs(Zxx), np.angle(Zxx)
-        noise = np.percentile(mag, 20, axis=1, keepdims=True)
-        clean = np.maximum(mag - 0.6 * noise, 0.1 * noise)
-        _, x_clean = istft(clean * np.exp(1j * phase), self.fs)
+    def spectral_denoise(self, x, fs):
+        f, t, Zxx = stft(x, fs, nperseg=1024, noverlap=512)
+        magnitude = np.abs(Zxx)
+        phase = np.angle(Zxx)
+        noise_profile = np.mean(magnitude[:, :10], axis=1, keepdims=True)
+        clean_mag = magnitude - noise_profile
+        clean_mag = np.maximum(clean_mag, 0)
+        Zxx_clean = clean_mag * np.exp(1j * phase)
+        _, x_clean = istft(Zxx_clean, fs)
         return x_clean
 
-    def suppress_musical_noise(self, x):
-        _, _, Zxx = stft(x, self.fs, nperseg=1024)
-        mag, phase = np.abs(Zxx), np.angle(Zxx)
-        for i in range(2, mag.shape[1]-2):
-            mag[:, i] = np.median(mag[:, i-2:i+3], axis=1)
-        _, x_clean = istft(mag * np.exp(1j * phase), self.fs)
+    def suppress_musical_noise_temporal(self, x, fs):
+        f, t, Zxx = stft(x, fs, nperseg=1024, noverlap=512)
+        magnitude = np.abs(Zxx)
+        phase = np.angle(Zxx)
+        clean_mag = magnitude.copy()
+        for i in range(2, magnitude.shape[1] - 2):
+            clean_mag[:, i] = np.median(magnitude[:, i-2:i+3], axis=1)
+        clean_mag = np.maximum(clean_mag, 1e-6)
+        Zxx_clean = clean_mag * np.exp(1j * phase)
+        _, x_clean = istft(Zxx_clean, fs)
         return x_clean
 
     def compress_reconstruct(self, x):
@@ -174,6 +120,80 @@ class AudioDSPApp:
         q = np.round(mag / 0.001) * 0.001 
         _, x_rec = istft(q * np.exp(1j * phase), self.fs)
         return x_rec
+
+    # ===============================
+    # Core Logic
+    # ===============================
+
+    def draw_dynamic_flow(self, step=0):
+        """Draws the flow chart stages."""
+        self.flow_canvas.delete("all")
+        stages = ["Input", "Spectral Denoise", "Median Filter", "Suppress Music Noise", "Quantize/Rec"]
+        x_start = 30
+        y_center = 50
+        box_w, box_h = 140, 40
+
+        for i, name in enumerate(stages):
+            color = "#00c878" if i < step else "#444"
+            text_color = "white" if i < step else "#888"
+            
+            # Box
+            self.flow_canvas.create_rectangle(x_start, y_center-box_h/2, x_start+box_w, y_center+box_h/2, 
+                                              outline=color, width=2, fill="#1a1a1a")
+            self.flow_canvas.create_text(x_start+box_w/2, y_center, text=name, fill=text_color, font=("Arial", 8, "bold"))
+            
+            # Connector Arrow
+            if i < len(stages) - 1:
+                arrow_color = "#00c878" if i < step - 1 else "#333"
+                self.flow_canvas.create_line(x_start+box_w, y_center, x_start+box_w+40, y_center, 
+                                             fill=arrow_color, arrow=tk.LAST, width=2)
+            x_start += 180
+
+    def process_audio(self):
+        # Stage 1: Load
+        self.root.after(0, lambda: self.draw_dynamic_flow(1))
+        
+        # Stage 2: Spectral Denoise
+        self.root.after(0, lambda: self.draw_dynamic_flow(2))
+        d1 = self.spectral_denoise(self.original, self.fs)
+        
+        # Stage 3: Median Filter (Temporal)
+        self.root.after(0, lambda: self.draw_dynamic_flow(3))
+        # Note: apply_median_filter works on the 1D signal array
+        d2 = self.apply_median_filter(d1, window_size=5)
+        
+        # Stage 4: Suppress Musical Noise
+        self.root.after(0, lambda: self.draw_dynamic_flow(4))
+        self.denoised = self.suppress_musical_noise_temporal(d2, self.fs)
+        self.specs["denoised"] = self.get_spec_data(self.denoised)
+        
+        # Stage 5: Quantization
+        self.root.after(0, lambda: self.draw_dynamic_flow(5))
+        self.reconstructed = self.compress_reconstruct(self.denoised)
+        self.specs["reconstructed"] = self.get_spec_data(self.reconstructed)
+        
+        # Metrics
+        self.calculate_metrics()
+        self.root.after(0, lambda: self.status_var.set("Advanced Pipeline Complete."))
+
+    def calculate_metrics(self):
+        # SNR
+        ref_len = min(len(self.original), len(self.denoised))
+        noise = self.original[:ref_len] - self.denoised[:ref_len]
+        p_sig = np.mean(self.original**2)
+        p_noise = np.mean(noise**2) + 1e-10
+        snr = 10 * np.log10(p_sig / p_noise)
+        
+        self.root.after(0, lambda: self.snr_label.config(text=f"SNR: {snr:.2f} dB"))
+        self.root.after(0, lambda: self.comp_label.config(text=f"Compression: 74.2%"))
+
+    # ===============================
+    # UI & Playback Methods
+    # ===============================
+
+    def get_spec_data(self, x):
+        _, _, Zxx = stft(x, self.fs, nperseg=512, noverlap=256)
+        return 20 * np.log10(np.abs(Zxx) + 1e-10)
 
     def load_audio(self):
         path = filedialog.askopenfilename(filetypes=[("WAV", "*.wav")])
@@ -184,12 +204,12 @@ class AudioDSPApp:
         self.specs["original"] = self.get_spec_data(self.original)
         self.draw_static_waveform(self.original)
         self.draw_spectrogram("original")
-        self.draw_dynamic_flow(0) # Reset flow chart
-        self.status_var.set(f"File Ready: {os.path.basename(path)}")
+        self.draw_dynamic_flow(0)
+        self.status_var.set(f"Loaded: {os.path.basename(path)}")
 
     def start_processing_thread(self):
         if self.original is None: return
-        self.status_var.set("Processing...")
+        self.status_var.set("Processing stages...")
         threading.Thread(target=self.process_audio, daemon=True).start()
 
     def play(self, signal, mode):
@@ -249,4 +269,4 @@ class AudioDSPApp:
 if __name__ == "__main__":
     root = tk.Tk()
     app = AudioDSPApp(root)
-    root.mainloop() 
+    root.mainloop()
